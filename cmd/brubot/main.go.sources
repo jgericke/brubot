@@ -5,16 +5,18 @@ import (
 	"brubot/internal/helpers"
 	"brubot/internal/sources"
 	"database/sql"
+	"fmt"
+	"log"
 )
 
 func main() {
 
 	var err error
-	//var source sources.Source
+	var source sources.Source
 
 	var globalConfig config.GlobalConfig
 	var targetConfig config.TargetConfig
-	var sourcesConfig config.SourcesConfig
+	var sourcesConfig config.SourceConfig
 	var db *sql.DB
 	var roundID int
 
@@ -34,7 +36,7 @@ func main() {
 
 	defer db.Close()
 
-	helpers.Logger.Debugf("targetConfig: %s", targetConfig.Client.UserAgent)
+	helpers.Logger.Infof("targetConfig: %s", targetConfig.Client.UserAgent)
 
 	roundID, err = helpers.GetCurrentRound(db)
 
@@ -45,13 +47,13 @@ func main() {
 	// debug
 	helpers.Logger.Debug("roundID: ", roundID)
 
-	sources := new(sources.Sources)
-	sources.Init(globalConfig, sourcesConfig)
-
-	err = sources.Predictions(roundID)
-
+	source, err = sources.SourceRugbyVision()
 	if err != nil {
-		helpers.Logger.Fatal("A failure occurred retrieving predictions from source(s): ", err)
+		log.Fatal("Failure retrieving from source: ", err)
+	}
+
+	for k, v := range source.SourceRound.RoundFixtures {
+		fmt.Println(k, v)
 	}
 
 }

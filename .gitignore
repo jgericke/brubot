@@ -17,5 +17,14 @@
 *.code-workspace
 *.csv
 *.yaml
+*.db
 *Notes*
+
+# helper scripts
+helpers/bin
+# working sql
+helpers/sql
+
+# Test config
 brubot.yaml
+config.yaml

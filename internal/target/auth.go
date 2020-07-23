@@ -11,25 +11,28 @@ import (
 	"time"
 )
 
+// all the important target auth stuff
 type auth struct {
-	url            string
-	parameters     map[string]string
-	passwordEncode bool
-	payload        string
-	method         string
-	userAgent      string
-	errorMsg       string
-	timeout        time.Duration
-	headers        map[string]string
-	cookieJar      http.CookieJar
+	url            string            // URL string for target authentication
+	parameters     map[string]string // Target credentials strng
+	passwordEncode bool              // Specifies whether to URL encode credential string
+	payload        string            // Holds the auth string built by createPayload()
+	method         string            // http method for auth endpoint
+	userAgent      string            // user agent string set in request header
+	errorMsg       string            // HTML body response string to establish failure
+	timeout        time.Duration     // Auth http client timeout seconds
+	headers        map[string]string // Headers map to set on auth query
+	cookieJar      http.CookieJar    // Returned on successful auth for use by colly
 }
 
+// builds auth query, url encoding where required
 func (a *auth) createPayoad() {
 
 	if a.passwordEncode {
 		a.parameters["password"] = url.QueryEscape(a.parameters["password"])
 	}
 
+	// creates a string for authentication from auth.parameters map
 	idx := 0
 	for param, val := range a.parameters {
 		if idx == 0 {
@@ -42,11 +45,15 @@ func (a *auth) createPayoad() {
 
 }
 
+// Query to target authentication url, using method to submit auth payload
+// Checks response to establish success of authentication attemp
 func (a *auth) authenticate(timeout time.Duration) error {
 
 	a.createPayoad()
 
+	// create a cookieJar to be passed to colly client
 	a.cookieJar, _ = cookiejar.New(nil)
+	// std http client setup
 	httpClient := http.Client{Jar: a.cookieJar, Timeout: time.Second * a.timeout}
 
 	req, err := http.NewRequest(a.method, a.url, strings.NewReader(a.payload))
@@ -58,7 +65,7 @@ func (a *auth) authenticate(timeout time.Duration) error {
 		req.Header.Add(headerType, headerVal)
 	}
 
-	// global set separately
+	// global headers are set separately
 	req.Header.Set("User-Agent", a.userAgent)
 
 	resp, err := httpClient.Do(req)
@@ -68,8 +75,9 @@ func (a *auth) authenticate(timeout time.Duration) error {
 
 	defer resp.Body.Close()
 
+	// was a 200 response received from auth query
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("authentication 200 response failure")
+		return errors.New("An invalid response code was received when authenticating to target")
 	}
 
 	respBodyBytes, err := ioutil.ReadAll(resp.Body)
@@ -77,8 +85,9 @@ func (a *auth) authenticate(timeout time.Duration) error {
 		return err
 	}
 
+	// parse response body for auth failure message and react accordingly
 	if strings.Contains(string(respBodyBytes), a.errorMsg) {
-		return errors.New("authentication incorrect credentials")
+		return errors.New("Invalid credentials when authenticating to target")
 	}
 
 	return nil
