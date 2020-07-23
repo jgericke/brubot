@@ -18,7 +18,7 @@ func (s *Source) Vision() error {
 	// Vision provides margins for multiple tournaments
 	tournaments := [2]string{
 		s.Client.parser.predictions["attr_t_tournament_1"],
-		s.Client.parser.predictions["attr_t_tournament_2"]
+		s.Client.parser.predictions["attr_t_tournament_2"],
 	}
 
 	// Client error has occurred attempting .Visit
@@ -55,7 +55,7 @@ func (s *Source) Vision() error {
 					if predictedMargin > 0 {
 						predictedWinner = leftTeam
 					} else {
-						// Vision reflects a leftTeam loss with a negative int, 
+						// Vision reflects a leftTeam loss with a negative int,
 						// we flip that with to positive and set the winner to rightTeam
 						predictedMargin = int(math.Abs(float64(predictedMargin)))
 						predictedWinner = rightTeam
