@@ -51,7 +51,12 @@ func main() {
 	err = sources.Predictions(roundID)
 
 	if err != nil {
-		helpers.Logger.Fatal("A failure occurred retrieving predictions from source(s): ", err)
+		helpers.Logger.Fatal("A failure error occurred retrieving predictions from source(s): ", err)
+	}
+
+	err = sources.Update(db)
+	if err != nil {
+		helpers.Logger.Fatal("A failure occurred updating source(s) ", err)
 	}
 
 }

@@ -44,7 +44,7 @@ func (s *Source) Vision() error {
 		// This will always be bespoke for each source
 		s.Client.collector.OnHTML(fmt.Sprintf(s.Client.parser.predictions["attr_onhtml"], tournamentName, tournamentRound), func(e *colly.HTMLElement) {
 
-			e.ForEach("tr", func(_ int, el *colly.HTMLElement) {
+			e.ForEach(s.Client.parser.predictions["attr_t_iterator"], func(_ int, el *colly.HTMLElement) {
 
 				leftTeam := el.ChildText(s.Client.parser.predictions["attr_t_leftteam"])
 				rightTeam := el.ChildText(s.Client.parser.predictions["attr_t_rightteam"])

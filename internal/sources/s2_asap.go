@@ -28,7 +28,7 @@ func (s *Source) Asap() error {
 
 	s.Client.collector.OnHTML(s.Client.parser.predictions["attr_onhtml"], func(e *colly.HTMLElement) {
 
-		e.ForEach("tbody", func(_ int, el *colly.HTMLElement) {
+		e.ForEach(s.Client.parser.predictions["attr_t_iterator"], func(_ int, el *colly.HTMLElement) {
 
 			leftTeam := e.ChildText(s.Client.parser.predictions["attr_t_leftteam"])
 			leftTeamMargin := re.FindAllString(e.ChildText(s.Client.parser.predictions["attr_t_leftmargin"]), -1)

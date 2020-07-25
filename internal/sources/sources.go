@@ -3,8 +3,12 @@ package sources
 import (
 	"brubot/config"
 	"brubot/internal/helpers"
+	"context"
+	"database/sql"
 	"fmt"
 	"reflect"
+
+	"github.com/lib/pq"
 )
 
 // Sources holds all predictions extracted for each source
@@ -83,13 +87,15 @@ func (s *Sources) Predictions(roundID int) error {
 
 		s.Sources[idx].Round.id = roundID
 
-		// Call the Source objects method by method name using the Source objects Name property
+		// Call prediction extraction method using the Source objects Name property,
+		// i.e. if the source is named foo, a method should exist of the same name for
+		// retrieving predictions
 		errv := reflect.ValueOf(&s.Sources[idx]).MethodByName(s.Sources[idx].Name).Call([]reflect.Value{})
 
-		// error checking is different as valueof returns a reflected interface
+		// error checking is different here as valueof returns a reflected interface
 		if !errv[0].IsNil() {
 			// Use error wrapping to collect errors per-source but not fail outright for all
-			// prediction retrievals
+			// prediction retrievals (faily messy)
 			if err == nil {
 				err = fmt.Errorf("Failed source: %s error: %v", s.Sources[idx].Name, errv[0].Interface().(error))
 			} else {
@@ -105,11 +111,87 @@ func (s *Sources) Predictions(roundID int) error {
 				s.Sources[idx].Round.Fixtures[f].winner,
 				s.Sources[idx].Round.Fixtures[f].margin,
 			)
-
 		}
 
 	}
 
 	return err
 
+}
+
+// Update records extracted source predictions for a round
+func (s *Sources) Update(db *sql.DB) error {
+
+	// Temporary ID for duplicate prediction checking
+	var tmpID int
+	// Create an empty context for update transaction
+	sqlCtx := context.Background()
+	// Start sql transaction
+	sqlTxn, err := db.BeginTx(sqlCtx, nil)
+	if err != nil {
+		return err
+	}
+	// prepare sql statement with COPY FROM
+	sqlStmt, err := sqlTxn.Prepare(pq.CopyIn("predictions", "round_id", "source", "leftteam", "rightteam", "winner", "margin"))
+	if err != nil {
+		return err
+	}
+
+	helpers.Logger.Debug("Prediction update is emminent, hold tight...")
+
+	for idx := range s.Sources {
+		for f := range s.Sources[idx].Round.Fixtures {
+
+			// Ugly check to establish if a source already has a prediction recorded
+			// against the round id and fixture parameters
+			// Kinda breaking the rules when calling a db method with a
+			// transaction underway
+			sqlRow := db.QueryRowContext(sqlCtx,
+				"SELECT id FROM predictions WHERE round_id=$1"+
+					"AND source=$2 AND leftteam=$3 AND rightteam=$4"+
+					"AND winner=$5 AND margin=$6",
+				s.Sources[idx].Round.id,
+				s.Sources[idx].Name,
+				s.Sources[idx].Round.Fixtures[f].leftTeam,
+				s.Sources[idx].Round.Fixtures[f].rightTeam,
+				s.Sources[idx].Round.Fixtures[f].winner,
+				s.Sources[idx].Round.Fixtures[f].margin).Scan(&tmpID)
+			switch {
+			case sqlRow == sql.ErrNoRows:
+				// ErrNoRows means we are good to go, execute CopyIn
+				// with round id and fixture parameters
+				_, err = sqlStmt.Exec(
+					s.Sources[idx].Round.id,
+					s.Sources[idx].Name,
+					s.Sources[idx].Round.Fixtures[f].leftTeam,
+					s.Sources[idx].Round.Fixtures[f].rightTeam,
+					s.Sources[idx].Round.Fixtures[f].winner,
+					s.Sources[idx].Round.Fixtures[f].margin,
+				)
+				if err != nil {
+					return err
+				}
+			case sqlRow != nil:
+				// Error occurred during query
+				return sqlRow
+			default:
+				helpers.Logger.Debugf("Prediction update omitted as record already exists with ID: %d", tmpID)
+			}
+
+		}
+	}
+
+	err = sqlStmt.Close()
+	if err != nil {
+		return err
+	}
+
+	err = sqlTxn.Commit()
+	if err != nil {
+		return err
+	}
+
+	helpers.Logger.Debug("Prediction update completed sans incidents")
+
+	return nil
 }
