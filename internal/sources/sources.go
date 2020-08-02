@@ -18,9 +18,11 @@ type Sources struct {
 
 // Source represents a source data location for margin retrieval.
 type Source struct {
-	Name   string
-	Client client
-	Round  Round
+	Name       string
+	Tournament string
+	Weight     float64
+	Client     client
+	Round      Round
 }
 
 // Round contains all fixtures and associated prediction per fixture
@@ -47,7 +49,9 @@ func (s *Sources) Init(globalConfig config.GlobalConfig, sourcesConfig config.So
 	for idx := range sourcesConfig.Sources {
 
 		s.Sources = append(s.Sources, Source{
-			Name: sourcesConfig.Sources[idx].Name,
+			Name:       sourcesConfig.Sources[idx].Name,
+			Tournament: sourcesConfig.Sources[idx].Tournament,
+			Weight:     sourcesConfig.Sources[idx].Weight,
 			Client: client{
 				config: clientConfig{
 					urls:                sourcesConfig.Sources[idx].Client.URLs,
@@ -95,7 +99,7 @@ func (s *Sources) Predictions(roundID int) error {
 		// error checking is different here as valueof returns a reflected interface
 		if !errv[0].IsNil() {
 			// Use error wrapping to collect errors per-source but not fail outright for all
-			// prediction retrievals (faily messy)
+			// prediction retrievals (fails messy)
 			if err == nil {
 				err = fmt.Errorf("Failed source: %s error: %v", s.Sources[idx].Name, errv[0].Interface().(error))
 			} else {
@@ -146,7 +150,7 @@ func (s *Sources) Update(db *sql.DB) error {
 			// against the round id and fixture parameters
 			// Kinda breaking the rules when calling a db method with a
 			// transaction underway
-			sqlRow := db.QueryRowContext(sqlCtx,
+			sqlPrdExists := db.QueryRowContext(sqlCtx,
 				"SELECT id FROM predictions WHERE round_id=$1"+
 					"AND source=$2 AND leftteam=$3 AND rightteam=$4"+
 					"AND winner=$5 AND margin=$6",
@@ -157,7 +161,7 @@ func (s *Sources) Update(db *sql.DB) error {
 				s.Sources[idx].Round.Fixtures[f].winner,
 				s.Sources[idx].Round.Fixtures[f].margin).Scan(&tmpID)
 			switch {
-			case sqlRow == sql.ErrNoRows:
+			case sqlPrdExists == sql.ErrNoRows:
 				// ErrNoRows means we are good to go, execute CopyIn
 				// with round id and fixture parameters
 				_, err = sqlStmt.Exec(
@@ -171,21 +175,18 @@ func (s *Sources) Update(db *sql.DB) error {
 				if err != nil {
 					return err
 				}
-			case sqlRow != nil:
+			case sqlPrdExists != nil:
 				// Error occurred during query
-				return sqlRow
+				return sqlPrdExists
 			default:
 				helpers.Logger.Debugf("Prediction update omitted as record already exists with ID: %d", tmpID)
 			}
-
 		}
 	}
-
 	err = sqlStmt.Close()
 	if err != nil {
 		return err
 	}
-
 	err = sqlTxn.Commit()
 	if err != nil {
 		return err
@@ -194,4 +195,60 @@ func (s *Sources) Update(db *sql.DB) error {
 	helpers.Logger.Debug("Prediction update completed sans incidents")
 
 	return nil
+}
+
+// Generate figures out the best margins on the market
+func (s *Sources) Generate(roundID int) (map[string]int, error) {
+
+	var err error
+	var predictions map[string]int
+	predictions = make(map[string]int)
+
+	// In each source find fixtures with matching *winners* (for now) and calculate weighted margins where applicable
+	for idx := range s.Sources {
+		for f := range s.Sources[idx].Round.Fixtures {
+			if _, ok := predictions[s.Sources[idx].Round.Fixtures[f].winner]; ok {
+				if s.Sources[idx].Weight != 0 {
+					// Add new weighted margin to predictions existing aggregate weighted margin
+					predictions[s.Sources[idx].Round.Fixtures[f].winner] = predictions[s.Sources[idx].Round.Fixtures[f].winner] + int(float64(s.Sources[idx].Round.Fixtures[f].margin)*s.Sources[idx].Weight)
+					helpers.Logger.Debugf("Updated prediction from source: %s, winner: %s, weigthed margin now: %d",
+						s.Sources[idx].Name,
+						s.Sources[idx].Round.Fixtures[f].winner,
+						predictions[s.Sources[idx].Round.Fixtures[f].winner],
+					)
+				} else {
+					// Matched prediction without a weighted source, implication being there are 2 sources with the same
+					// tournament that should have predictions aggregated using weighted averages
+					helpers.Logger.Errorf("Found a matching prediction without a weight, source: %s", s.Sources[idx].Name)
+					if err == nil {
+						err = fmt.Errorf("Found a matching prediction without a weight, source: %s", s.Sources[idx].Name)
+					} else {
+						err = fmt.Errorf("%w, Found a matching prediction without a weight, source: %s", err, s.Sources[idx].Name)
+					}
+				}
+			} else {
+				// Add new prediction for sources with weight specified (calculating weighted average)
+				if s.Sources[idx].Weight != 0 {
+					predictions[s.Sources[idx].Round.Fixtures[f].winner] = int(float64(s.Sources[idx].Round.Fixtures[f].margin) * s.Sources[idx].Weight)
+					helpers.Logger.Debugf("Added weighted prediction from source: %s, winner: %s, weighted margin: %d",
+						s.Sources[idx].Name,
+						s.Sources[idx].Round.Fixtures[f].winner,
+						predictions[s.Sources[idx].Round.Fixtures[f].winner],
+					)
+				} else {
+					// Add new prediction for sources without weight specified (source margin is our margin)
+					predictions[s.Sources[idx].Round.Fixtures[f].winner] = s.Sources[idx].Round.Fixtures[f].margin
+					helpers.Logger.Debugf("Added non-weighted prediction from source: %s, winner: %s, margin: %d",
+						s.Sources[idx].Name,
+						s.Sources[idx].Round.Fixtures[f].winner,
+						predictions[s.Sources[idx].Round.Fixtures[f].winner],
+					)
+				}
+			}
+		}
+
+	}
+
+	return predictions, err
+
 }

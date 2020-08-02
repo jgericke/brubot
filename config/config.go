@@ -60,8 +60,10 @@ type TargetConfig struct {
 // Sources slice unmarshals from sources.endpoints list
 type SourcesConfig struct {
 	Sources []struct {
-		Name       string `mapstructure:"name"`
-		UseGlobals bool   `mapstructure:"useGlobals"`
+		Name       string  `mapstructure:"name"`
+		Tournament string  `mapstructure:"tournament"`
+		Weight     float64 `mapstructure:"weight"`
+		UseGlobals bool    `mapstructure:"useGlobals"`
 		Client     struct {
 			UserAgent           string            `mapstructure:"userAgent"`
 			IgnoreRobots        bool              `mapstructure:"ignoreRobots"`
