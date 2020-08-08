@@ -2,22 +2,43 @@ package target
 
 import (
 	"brubot/internal/helpers"
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/gocolly/colly/v2"
+	"github.com/lib/pq"
 )
 
+// Results returns the completed fixture results for a specified round
+func (t *Target) Results(previousRoundID int, db *sql.DB) error {
+
+	// roundID *should* typically be currentRound - 1 for retrieving
+	// the previous rounds fixture results
+	t.PreviousRound.id = previousRoundID
+	if err := t.getResults(); err != nil {
+		return err
+	}
+
+	if err := t.updateResults(db); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
 // getResults uses a pre-authenticated client to retrieve fixture results from a specified round
-func (t *Target) getResults(previousRound *PreviousRound) error {
+func (t *Target) getResults() error {
 
 	var err error
 	var margin int
 	var winner string
 
-	t.Client.collector.OnHTML(t.Client.parser.results["attr_onhtml"], func(e *colly.HTMLElement) {
+	t.Client.collector.OnHTML(fmt.Sprintf(t.Client.parser.results["attr_onhtml"], t.PreviousRound.id), func(e *colly.HTMLElement) {
 
 		e.ForEach(t.Client.parser.results["attr_fixture"], func(_ int, cl *colly.HTMLElement) {
 
@@ -55,7 +76,7 @@ func (t *Target) getResults(previousRound *PreviousRound) error {
 				}
 			}
 			// Append extracted result to previousRounds Results
-			previousRound.Results = append(previousRound.Results, result{
+			t.PreviousRound.Results = append(t.PreviousRound.Results, result{
 				leftTeam:  leftTeam,
 				rightTeam: rightTeam,
 				winner:    winner,
@@ -87,8 +108,81 @@ func (t *Target) getResults(previousRound *PreviousRound) error {
 	})
 
 	// Client request to the targets results endpoint based on the results roundID
-	t.Client.collector.Visit(fmt.Sprint(t.Client.config.urls["results"], previousRound.id))
+	t.Client.collector.Visit(fmt.Sprintf(t.Client.config.urls["results"], t.PreviousRound.id, t.PreviousRound.id))
 
 	return err
+
+}
+
+// updateResults writes retrieved results for a previous round of fixtures to backend
+func (t *Target) updateResults(db *sql.DB) error {
+
+	// backend updates could become their own abstraction as I only use CopyIn
+	// and do some level of duplicate checking to prevent duplicate prediction/results updates
+
+	// Temporary ID for duplicate RESULTS checking
+	var tmpID int
+	// Create an empty context for results update
+	sqlCtx := context.Background()
+	// Create transaction
+	sqlTxn, err := db.BeginTx(sqlCtx, nil)
+	if err != nil {
+		return err
+	}
+	// prepare results update with COPY FROM (table, fields[..])
+	sqlStmt, err := sqlTxn.Prepare(pq.CopyIn("results", "round_id", "leftteam", "rightteam", "winner", "margin"))
+	if err != nil {
+		return err
+	}
+
+	// looking *very* familiar...will abstract when it makes sense.
+	helpers.Logger.Debug("Results update is emminent, hold tight...")
+
+	for idx := range t.PreviousRound.Results {
+		// Same "Ugly Check" as source prediction update
+		sqlPrdExists := db.QueryRowContext(sqlCtx,
+			"SELECT id FROM results WHERE round_id=$1"+
+				"AND leftteam=$2 AND rightteam=$3"+
+				"AND winner=$4 AND margin=$5",
+			t.PreviousRound.id,
+			t.PreviousRound.Results[idx].leftTeam,
+			t.PreviousRound.Results[idx].rightTeam,
+			t.PreviousRound.Results[idx].winner,
+			t.PreviousRound.Results[idx].margin).Scan(&tmpID)
+
+		switch {
+		case sqlPrdExists == sql.ErrNoRows:
+			// ErrNoRows means we are good to go, execute CopyIn
+			// with PreviousRound id and results
+			_, err = sqlStmt.Exec(
+				t.PreviousRound.id,
+				t.PreviousRound.Results[idx].leftTeam,
+				t.PreviousRound.Results[idx].rightTeam,
+				t.PreviousRound.Results[idx].winner,
+				t.PreviousRound.Results[idx].margin,
+			)
+			if err != nil {
+				return err
+			}
+		case sqlPrdExists != nil:
+			// Error occurred during query
+			return sqlPrdExists
+		default:
+			helpers.Logger.Debugf("Results update omitted as record already exists with ID: %d", tmpID)
+		}
+
+	}
+	err = sqlStmt.Close()
+	if err != nil {
+		return err
+	}
+	err = sqlTxn.Commit()
+	if err != nil {
+		return err
+	}
+
+	helpers.Logger.Debug("Results update completed sans incidents")
+
+	return nil
 
 }

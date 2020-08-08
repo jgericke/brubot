@@ -3,6 +3,7 @@ package main
 import (
 	"brubot/config"
 	"brubot/internal/helpers"
+	"brubot/internal/sources"
 	"brubot/internal/target"
 	"database/sql"
 )
@@ -17,11 +18,12 @@ func main() {
 
 	var db *sql.DB
 	var roundID int
-	//var predictions map[string]int
+	//var previousRoundID int
+	var predictions map[string]int
 
 	target := new(target.Target)
-	//sources := new(sources.Sources)
-	//predictions = make(map[string]int)
+	sources := new(sources.Sources)
+	predictions = make(map[string]int)
 
 	// Initialise brubot
 	helpers.LoggerInit()
@@ -46,16 +48,46 @@ func main() {
 	target.Init(globalConfig, targetConfig)
 
 	if err = target.Authenticate(); err != nil {
-		helpers.Logger.Fatal("A failure occurred authenticating to endpoint: ", err)
+		helpers.Logger.Fatal("A failure occurred authenticating to target: ", err)
 	}
 
-	// debug
-	helpers.Logger.Infof("Source[0] name: %s", sourcesConfig.Sources[0].Name)
-
-	// Get results for previous roundID
-	err = target.Results(roundID - 1)
+	// Gets results from previous rounds fixtures and update db
+	err = target.Results(roundID-1, db)
 	if err != nil {
-		helpers.Logger.Fatal("Failure extracting results from endpoint: ", err)
+		helpers.Logger.Fatal("Failure extracting results from target: ", err)
+	}
+
+	// Gets current fixtures for this round
+	err = target.Fixtures(roundID)
+	if err != nil {
+		helpers.Logger.Fatal("Failure extracting fixtures from target: ", err)
+	}
+
+	// Initialize sources and retrieve predictions
+	sources.Init(globalConfig, sourcesConfig)
+
+	// Retrieve predictions from all sources
+	err = sources.Predictions(roundID)
+	if err != nil {
+		helpers.Logger.Fatal("A failure occurred retrieving predictions from source(s): ", err)
+	}
+
+	// Update db with most recent predictions
+	err = sources.Update(db)
+	if err != nil {
+		helpers.Logger.Fatal("A failure occurred updating source(s) ", err)
+	}
+
+	// Generate weighted predictions for all sources
+	predictions, err = sources.Generate(roundID)
+	if err != nil {
+		helpers.Logger.Error("A failure occurred generating predictions: ", err)
+	}
+
+	// Submit generated predictions to target
+	err = target.Predictions(predictions)
+	if err != nil {
+		helpers.Logger.Fatal("A failure occurred submitting predictions: ", err)
 	}
 
 }

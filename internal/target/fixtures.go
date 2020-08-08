@@ -10,22 +10,28 @@ import (
 	"github.com/gocolly/colly/v2"
 )
 
+// Fixtures retrieves all fixtures details within a round based on roundID
+// and populates Round.Fixtures
+func (t *Target) Fixtures(roundID int) error {
+
+	// roundID is determined by the current date within
+	// preset fixtures date range at time of execution
+	t.Round.id = roundID
+
+	if err := t.getFixtures(); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
 // getFixtures uses a pre-authenticated client to extract fixture parameters for a specified round.
-func (t *Target) getFixtures(round *Round) error {
+func (t *Target) getFixtures() error {
 
 	var err error
 
-	// Scrapes and parses fixtures for the active round (set via round.id).
-	// Fixture parameters are stored using the Endpoint.Fixture structure:
-	//
-	// 		token     string
-	// 		leftTeam  string
-	// 		rightTeam string
-	// 		leftID    int
-	// 		rightID   int
-	// 		winnerID  int
-	// 		margin    int
-	//
+	// Scrapes and parses fixtures for the active round (set via t.Round.id).
 	t.Client.collector.OnHTML(t.Client.parser.fixtures["attr_onhtml"], func(e *colly.HTMLElement) {
 
 		e.ForEach(t.Client.parser.fixtures["attr_fixture"], func(_ int, cl *colly.HTMLElement) {
@@ -43,21 +49,37 @@ func (t *Target) getFixtures(round *Round) error {
 				return
 			}
 
+			// Set token from parsed token attribute
+			token := cl.Attr(t.Client.parser.fixtures["attr_token"])
+			// Split left and right teams using known delimeter, assumes
+			// the array returned will consist of only 2 elements being respsective team names
+			leftTeam := helpers.CleanName(strings.Split(cl.Attr(t.Client.parser.fixtures["attr_teams"]),
+				t.Client.parser.fixtures["attr_teams_delimiter"])[0])
+			rightTeam := helpers.CleanName(strings.Split(cl.Attr(t.Client.parser.fixtures["attr_teams"]),
+				t.Client.parser.fixtures["attr_teams_delimiter"])[1])
+
 			// Appends a fixture element to a slice of Fixtures
 			// within the active Round, setting scraped and parsed fixture
 			// parameters.
-			round.Fixtures = append(round.Fixtures, fixture{
-				token: cl.Attr(t.Client.parser.fixtures["attr_token"]),
-				leftTeam: strings.Split(cl.Attr(t.Client.parser.fixtures["attr_teams"]),
-					t.Client.parser.fixtures["attr_teams_delimiter"])[0],
-				rightTeam: strings.Split(cl.Attr(t.Client.parser.fixtures["attr_teams"]),
-					t.Client.parser.fixtures["attr_teams_delimiter"])[1],
-				leftID:  leftID,
-				rightID: rightID,
+			t.Round.Fixtures = append(t.Round.Fixtures, fixture{
+				token:     token,
+				leftTeam:  leftTeam,
+				rightTeam: rightTeam,
+				leftID:    leftID,
+				rightID:   rightID,
 				// Initialise winnerID to -1 to later detect missed predictions,
 				// a draw is reflected with a winnerID of 0 and margin of 0
 				winnerID: -1,
 			})
+
+			helpers.Logger.Debugf("Fixture has been retrieved for round: %d, token: %s leftTeam: %s (id: %d), rightTeam: %s (id %d)",
+				t.Round.id,
+				token,
+				leftTeam,
+				leftID,
+				rightTeam,
+				rightID,
+			)
 
 		})
 
@@ -77,7 +99,7 @@ func (t *Target) getFixtures(round *Round) error {
 	})
 
 	// Client request to the targets fixture endpoint based on the currently active round.
-	t.Client.collector.Visit(fmt.Sprint(t.Client.config.urls["fixtures"], round.id))
+	t.Client.collector.Visit(fmt.Sprint(t.Client.config.urls["fixtures"], t.Round.id))
 
 	return err
 

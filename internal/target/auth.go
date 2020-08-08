@@ -25,6 +25,25 @@ type auth struct {
 	cookieJar      http.CookieJar    // Returned on successful auth for use by colly
 }
 
+// Authenticate builds and sends auth string to target and populates
+// a cookiejar to be passed to colly on successful auth.
+func (t *Target) Authenticate() error {
+
+	// Call to authenticate method, results in population of auth token
+	// within cookiejar
+	if err := t.Auth.authenticate(t.Auth.timeout); err != nil {
+		return err
+	}
+	// Initialises client with all client specific parameters, passing
+	// auth cookie jar for authenticating subsequent queries.
+	if err := t.Client.init(t.Auth.cookieJar); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
 // builds auth query, url encoding where required
 func (a *auth) createPayoad() {
 
