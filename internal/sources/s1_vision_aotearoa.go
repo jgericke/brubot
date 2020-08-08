@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"strings"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -35,8 +34,8 @@ func (s *Source) VisionAotearoa() error {
 			leftTeam := el.ChildText(s.Client.parser.predictions["attr_t_leftteam"])
 			rightTeam := el.ChildText(s.Client.parser.predictions["attr_t_rightteam"])
 			// Clean up team names for easier matching
-			leftTeam = strings.Replace(strings.ToLower(leftTeam), "the ", "", -1)
-			rightTeam = strings.Replace(strings.ToLower(rightTeam), "the ", "", -1)
+			leftTeam = helpers.CleanName(leftTeam)
+			rightTeam = helpers.CleanName(rightTeam)
 
 			if predictedMargin, marginErr := strconv.Atoi(el.ChildText(s.Client.parser.predictions["attr_t_margin"])); marginErr != nil {
 				err = marginErr

@@ -13,7 +13,8 @@ import (
 	"github.com/lib/pq"
 )
 
-// Results returns the completed fixture results for a specified round
+// Results retrieves the completed fixture results for a round,
+// and updates backend accordingly
 func (t *Target) Results(previousRoundID int, db *sql.DB) error {
 
 	// roundID *should* typically be currentRound - 1 for retrieving

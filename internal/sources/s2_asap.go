@@ -4,7 +4,6 @@ import (
 	"brubot/internal/helpers"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -38,8 +37,8 @@ func (s *Source) Asap() error {
 			rightTeamMargin := re.FindAllString(e.ChildText(s.Client.parser.predictions["attr_t_rightmargin"]), -1)
 
 			// Clean up team names for easier matching
-			leftTeam = strings.Replace(strings.ToLower(leftTeam), "the ", "", -1)
-			rightTeam = strings.Replace(strings.ToLower(rightTeam), "the ", "", -1)
+			leftTeam = helpers.CleanName(leftTeam)
+			rightTeam = helpers.CleanName(rightTeam)
 
 			// There should only be a single element in these margin results (hopefully!)
 			if len(leftTeamMargin) > 0 {
