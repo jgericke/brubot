@@ -8,17 +8,26 @@ import (
 
 // Parameters for target parameters
 type Parameters struct {
-	Config *viper.Viper
-	Global *viper.Viper
-	Target *viper.Viper
+	Config  *viper.Viper
+	Global  *viper.Viper
+	Target  *viper.Viper
+	Sources *viper.Viper
 }
 
-// GlobalConfig represents global config
+// GlobalConfig maps to global config stanza
 type GlobalConfig struct {
+	DB struct {
+		Host     string `mapstructure:"host"`
+		Port     int    `mapstructure:"port"`
+		Name     string `mapstructure:"name"`
+		User     string `mapstructure:"user"`
+		Password string `mapstructure:"password"`
+		SSLMode  string `mapstructure:"sslmode"`
+	} `mapstructure:"db"`
 	UserAgent string `mapstructure:"userAgent"`
 }
 
-// TargetConfig represents target params
+// TargetConfig maps to target config stanza
 type TargetConfig struct {
 	UseGlobals bool `mapstructure:"useGlobals"`
 	Auth       struct {
@@ -40,13 +49,38 @@ type TargetConfig struct {
 		TLSHandShakeTimeout time.Duration     `mapstructure:"tlsHandShakeTimeout"`
 		URLs                map[string]string `mapstructure:"urls"`
 		Parser              struct {
-			Login    map[string]string `mapstructure:"login"`
-			Fixtures map[string]string `mapstructure:"fixtures"`
+			Login       map[string]string `mapstructure:"login"`
+			Fixtures    map[string]string `mapstructure:"fixtures"`
+			Results     map[string]string `mapstructure:"results"`
+			Predictions map[string]string `mapstructure:"predictions"`
 		} `mapstructure:"parser"`
 	} `mapstructure:"client"`
 }
 
-// Init reads main config
+// SourcesConfig holds settings for every defined source (s1..sX)
+// Sources slice unmarshals from sources.endpoints list
+type SourcesConfig struct {
+	Sources []struct {
+		Name       string  `mapstructure:"name"`
+		Tournament string  `mapstructure:"tournament"`
+		Weight     float64 `mapstructure:"weight"`
+		UseGlobals bool    `mapstructure:"useGlobals"`
+		Client     struct {
+			UserAgent           string            `mapstructure:"userAgent"`
+			IgnoreRobots        bool              `mapstructure:"ignoreRobots"`
+			EnableCache         bool              `mapstructure:"enableCache"`
+			CacheDir            string            `mapstructure:"cacheDir"`
+			DialTimeout         time.Duration     `mapstructure:"dialTimeout"`
+			TLSHandShakeTimeout time.Duration     `mapstructure:"tlsHandShakeTimeout"`
+			URLs                map[string]string `mapstructure:"urls"`
+			Parser              struct {
+				Predictions map[string]string `mapstructure:"predictions"`
+			} `mapstructure:"parser"`
+		} `mapstructure:"client"`
+	} `mapstructure:"endpoints"`
+}
+
+// Init parses config file
 func (p *Parameters) Init() error {
 
 	p.Config = viper.New()
@@ -61,8 +95,10 @@ func (p *Parameters) Init() error {
 
 }
 
-// ParseConfig populates all config parameters
-func (p *Parameters) ParseConfig(g *GlobalConfig, t *TargetConfig) error {
+// ParseConfig parses and populates all config parameters
+// unmarshalling config parameters for globals, targets and sources
+// into their respective Config structs
+func (p *Parameters) ParseConfig(g *GlobalConfig, t *TargetConfig, s *SourcesConfig) error {
 
 	var err error
 
@@ -76,6 +112,13 @@ func (p *Parameters) ParseConfig(g *GlobalConfig, t *TargetConfig) error {
 	p.Target = p.Config.Sub("target")
 
 	err = p.Target.Unmarshal(&t)
+	if err != nil {
+		return err
+	}
+
+	p.Sources = p.Config.Sub("sources")
+
+	err = p.Sources.Unmarshal(&s)
 	if err != nil {
 		return err
 	}

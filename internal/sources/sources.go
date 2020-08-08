@@ -1,100 +1,74 @@
 package sources
 
 import (
-	"brubot/internal/helpers"
-	"fmt"
-	"log"
-	"strconv"
-
-	"github.com/gocolly/colly"
+	"brubot/config"
 )
+
+// Sources holds all predictions extracted for each source
+type Sources struct {
+	Sources []Source
+}
 
 // Source represents a source data location for margin retrieval.
 type Source struct {
-	SourceRound        Round
-	SourceURL          string
-	SourceSearchFormat string
-	SourceSearchText   string
+	Name       string  // Used by reflection call to retrieve margins
+	Tournament string  // Tournament name source is providing margins for
+	Weight     float64 // Used to calculate aggregated margins based on weighted averages
+	Client     client  // Colly client
+	Round      Round   // Current round ID
 }
 
-// Round represents a round of fixtures.
+// Round contains all fixtures and associated prediction per fixture
+// and attempts to mirror target Round for easy translation
 type Round struct {
-	RoundNumber   int
-	RoundFixtures []Fixture
+	id       int       // ID for a current round, determined by date
+	Fixtures []fixture // All fixutes (matches) within a round/round ID
 }
 
-// Fixture represents match details within a round.
-type Fixture struct {
-	TeamnOne             string
-	TeamTwo              string
-	TeamOneWinPercentage string
-	TeamTwoWinPercentage string
-	PredictedMargin      int
+// fixture represents a match within a round
+// and attempts to mirror target fixtures for easy translation
+type fixture struct {
+	leftTeam  string // teamA
+	rightTeam string // teamB
+	winner    string // team name of predicted winning team
+	margin    int    // Point difference for winning team based on prediction
 }
 
-// setRoundNumber retrieves and sets the current round.
-func (r *Round) setRoundNumber() error {
-	var err error
-	if r.RoundNumber, err = helpers.FindRoundNumber(); err != nil {
-		return err
-	}
-	return nil
-}
+// Init builds Sources by iterating through all configured source endpoints within
+// config.SourcesConfig and creating a slice element for each with relevant
+// configurables set.
+func (s *Sources) Init(globalConfig config.GlobalConfig, sourcesConfig config.SourcesConfig) {
 
-// setSourceSearchText sets the text to search sourceURL body for, using RoundNumber as an identifier.
-func (s *Source) setSourceSearchText() {
-	s.SourceSearchText = fmt.Sprintf(s.SourceSearchFormat, s.SourceRound.RoundNumber)
-}
+	for idx := range sourcesConfig.Sources {
 
-// SourceRugbyVision predicted margins.
-func SourceRugbyVision() (Source, error) {
-
-	var err error
-	source := Source{}
-	source.SourceURL = "http://www.rugbyvision.com/updates/super-rugby-predictions"
-	source.SourceSearchFormat = "Super Rugby Round %d Predictions"
-
-	source.SourceRound.setRoundNumber()
-	source.setSourceSearchText()
-
-	// Instantiate default collector.
-	c := colly.NewCollector(
-		colly.UserAgent("Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36"),
-		colly.CacheDir("./cache"),
-	)
-	c.IgnoreRobotsTxt = false
-
-	c.OnRequest(func(r *colly.Request) {
-		log.Println("Retrieving from:", r.URL)
-	})
-
-	// Callback when collector finds the entry point to the DOM segment after matching criteria.
-	c.OnHTML("table[data-title='"+source.SourceSearchText+"'] tbody", func(e *colly.HTMLElement) {
-
-		e.ForEach("tr", func(_ int, el *colly.HTMLElement) {
-
-			if predictedMargin, marginErr := strconv.Atoi(el.ChildText("td:nth-child(5)")); marginErr != nil {
-				err = marginErr
-			} else {
-				source.SourceRound.RoundFixtures = append(source.SourceRound.RoundFixtures, Fixture{
-					TeamnOne:             el.ChildText("td:nth-child(1)"),
-					TeamOneWinPercentage: el.ChildText("td:nth-child(2)"),
-					TeamTwoWinPercentage: el.ChildText("td:nth-child(3)"),
-					TeamTwo:              el.ChildText("td:nth-child(4)"),
-					PredictedMargin:      predictedMargin,
-				})
-			}
+		s.Sources = append(s.Sources, Source{
+			Name:       sourcesConfig.Sources[idx].Name,
+			Tournament: sourcesConfig.Sources[idx].Tournament,
+			Weight:     sourcesConfig.Sources[idx].Weight,
+			Client: client{
+				config: clientConfig{
+					urls:                sourcesConfig.Sources[idx].Client.URLs,
+					ignoreRobots:        sourcesConfig.Sources[idx].Client.IgnoreRobots,
+					enableCache:         sourcesConfig.Sources[idx].Client.EnableCache,
+					cacheDir:            sourcesConfig.Sources[idx].Client.CacheDir,
+					dialTimeout:         sourcesConfig.Sources[idx].Client.DialTimeout,
+					tlsHandShakeTimeout: sourcesConfig.Sources[idx].Client.TLSHandShakeTimeout,
+				},
+				parser: clientParser{
+					predictions: sourcesConfig.Sources[idx].Client.Parser.Predictions,
+				},
+			},
 		})
-	})
 
-	// Collector error handling.
-	c.OnError(func(r *colly.Response, respError error) {
-		err = fmt.Errorf("Error response %+v occurred retrieving from %s message: %s", r, r.Request.URL, respError)
-	})
-	c.Visit(source.SourceURL)
-
-	if err != nil {
-		return source, err
+		// Set global parameters where applicable
+		if sourcesConfig.Sources[idx].UseGlobals {
+			s.Sources[idx].Client.config.userAgent = globalConfig.UserAgent
+		} else {
+			s.Sources[idx].Client.config.userAgent = sourcesConfig.Sources[idx].Client.UserAgent
+		}
+		// Go ahead an initialise each source endpoints colly client
+		// while initialising the source itself (saves time and money)
+		s.Sources[idx].Client.init()
 	}
-	return source, nil
+
 }

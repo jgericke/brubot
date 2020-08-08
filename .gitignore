@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+bin/*
 
 # Test binary, built with `go test -c`
 *.test
@@ -17,5 +18,14 @@
 *.code-workspace
 *.csv
 *.yaml
+*.db
 *Notes*
+
+# helper scripts
+helpers/bin
+# working sql
+helpers/sql
+
+# Test config
 brubot.yaml
+config.yaml
