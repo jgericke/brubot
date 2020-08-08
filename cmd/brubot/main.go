@@ -3,7 +3,6 @@ package main
 import (
 	"brubot/config"
 	"brubot/internal/helpers"
-	"brubot/internal/sources"
 	"brubot/internal/target"
 	"database/sql"
 )
@@ -18,13 +17,13 @@ func main() {
 
 	var db *sql.DB
 	var roundID int
-	var predictions map[string]int
+	//var predictions map[string]int
 
 	target := new(target.Target)
-	sources := new(sources.Sources)
-	predictions = make(map[string]int)
+	//sources := new(sources.Sources)
+	//predictions = make(map[string]int)
 
-	// Initialise thah brubot things
+	// Initialise brubot
 	helpers.LoggerInit()
 	globalConfig, targetConfig, sourcesConfig, err = helpers.ConfigInit()
 	if err != nil {
@@ -50,37 +49,13 @@ func main() {
 		helpers.Logger.Fatal("A failure occurred authenticating to endpoint: ", err)
 	}
 
-	// Get fixtures from roundID
-	err = target.Fixtures(roundID)
-	if err != nil {
-		helpers.Logger.Fatal("Failure extracting fixtures from endpoint: ", err)
-	}
+	// debug
+	helpers.Logger.Infof("Source[0] name: %s", sourcesConfig.Sources[0].Name)
 
-	// Initialize sources and retrieve predictions
-	sources.Init(globalConfig, sourcesConfig)
-
-	// Retrieve predictions from all sources
-	err = sources.Predictions(roundID)
+	// Get results for previous roundID
+	err = target.Results(roundID - 1)
 	if err != nil {
-		helpers.Logger.Fatal("A failure occurred retrieving predictions from source(s): ", err)
-	}
-
-	// Update db with most recent predictions
-	err = sources.Update(db)
-	if err != nil {
-		helpers.Logger.Fatal("A failure occurred updating source(s) ", err)
-	}
-
-	// Generate weighted predictions for all sources
-	predictions, err = sources.Generate(roundID)
-	if err != nil {
-		helpers.Logger.Error("A failure occurred generating predictions: ", err)
-	}
-
-	// Submit generated predictions to target
-	err = target.Predictions(predictions)
-	if err != nil {
-		helpers.Logger.Fatal("A failure occurred submitting predictions: ", err)
+		helpers.Logger.Fatal("Failure extracting results from endpoint: ", err)
 	}
 
 }

@@ -51,6 +51,7 @@ type TargetConfig struct {
 		Parser              struct {
 			Login       map[string]string `mapstructure:"login"`
 			Fixtures    map[string]string `mapstructure:"fixtures"`
+			Results     map[string]string `mapstructure:"results"`
 			Predictions map[string]string `mapstructure:"predictions"`
 		} `mapstructure:"parser"`
 	} `mapstructure:"client"`

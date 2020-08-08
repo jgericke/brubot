@@ -32,6 +32,7 @@ type clientConfig struct {
 type clientParser struct {
 	login       map[string]string // string identifiers for target login page
 	fixtures    map[string]string // string identifiers for target fixture attributes
+	results     map[string]string // string identifiers for target fixture results
 	predictions map[string]string // string identifiers for target prediction query arguments
 }
 

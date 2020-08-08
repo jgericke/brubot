@@ -10,9 +10,10 @@ import (
 
 // Target is everything required to submit a prediction
 type Target struct {
-	Round  Round  // Round ID, fixtures and predictions for a specific found
-	Auth   auth   // Client authentication cookie
-	Client client // Colly client instance
+	Round         Round         // Round ID, fixtures and predictions for a specific found
+	PreviousRound PreviousRound // Round ID and results for the previous round of fixtures
+	Auth          auth          // Client authentication cookie
+	Client        client        // Colly client instance
 }
 
 // Round contains all fixtures and associated prediction per fixture
@@ -36,6 +37,20 @@ type fixture struct {
 	rightID   int    // Unique identifer for teamB, extracted from target
 	winnerID  int    // Set to teamA or teamB identifer based on prediction
 	margin    int    // Point difference for winning team based on prediction
+}
+
+// PreviousRound contains fixture results for the most recent completed round
+type PreviousRound struct {
+	id      int      // Will generally be Round.id - 1
+	Results []result // Previous rounds fixtures with match outcomes
+}
+
+// Result of a completed fixture (similar to fixture but *Different*)
+type result struct {
+	leftTeam  string // teamA
+	rightTeam string // teamB
+	winner    string // Set to teamA or teamB identifer based on fixture results (or 'draw' in a draw)
+	margin    int    // Point difference for winning team based / winning margin
 }
 
 // Init sets a Target up with global and target specific configuration paramaeters.
@@ -70,6 +85,7 @@ func (t *Target) Init(globalConfig config.GlobalConfig, targetConfig config.Targ
 		parser: clientParser{
 			login:       targetConfig.Client.Parser.Login,
 			fixtures:    targetConfig.Client.Parser.Fixtures,
+			results:     targetConfig.Client.Parser.Results,
 			predictions: targetConfig.Client.Parser.Predictions,
 		},
 	}
@@ -115,6 +131,20 @@ func (t *Target) Fixtures(roundID int) error {
 	t.Round.id = roundID
 
 	if err := t.getFixtures(&t.Round); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+// Results returns the completed fixture results for a specified round
+func (t *Target) Results(previousRoundID int) error {
+
+	// roundID *should* typically be currentRound - 1 for retrieving
+	// the previous rounds fixture results
+	t.PreviousRound.id = previousRoundID
+	if err := t.getResults(&t.PreviousRound); err != nil {
 		return err
 	}
 
