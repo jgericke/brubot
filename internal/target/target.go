@@ -114,7 +114,7 @@ func (t *Target) Fixtures(roundID int) error {
 	// preset fixtures date range at time of execution
 	t.Round.id = roundID
 
-	if err := t.Client.getFixtures(&t.Round); err != nil {
+	if err := t.getFixtures(&t.Round); err != nil {
 		return err
 	}
 
@@ -140,7 +140,6 @@ func (t *Target) Predictions(predictions map[string]int) error {
 			// Sets Fixture teamID as the winnerID and margin when either a left or right
 			// team in the fixture matches with the predictions's winning team.
 			// TeamIDs are retrieved from the target and are randomish/too inconsistent to map up front.
-
 			if fuzzy.RankMatchNormalizedFold(team, t.Round.Fixtures[idx].leftTeam) >= 0 {
 				if margin == 0 {
 					// Indicates fixture prediction is a draw (margin = 0 / winner_id = 0)
@@ -148,6 +147,7 @@ func (t *Target) Predictions(predictions map[string]int) error {
 				} else {
 					t.Round.Fixtures[idx].winnerID = t.Round.Fixtures[idx].leftID
 				}
+
 				t.Round.Fixtures[idx].margin = margin
 				helpers.Logger.Debugf("Prediction has been set: leftTeam: %s winnerID: %d margin: %d, token: %s",
 					t.Round.Fixtures[idx].leftTeam,
@@ -179,7 +179,7 @@ func (t *Target) Predictions(predictions map[string]int) error {
 	}
 
 	// Call to client to set matched predictions for each fixture
-	if err := t.Client.setPredictions(&t.Round); err != nil {
+	if err := t.setPredictions(&t.Round); err != nil {
 		return err
 	}
 

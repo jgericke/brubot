@@ -197,14 +197,15 @@ func (s *Sources) Update(db *sql.DB) error {
 	return nil
 }
 
-// Generate figures out the best margins on the market
+// Generate figures out the best margins in town
 func (s *Sources) Generate(roundID int) (map[string]int, error) {
 
 	var err error
 	var predictions map[string]int
 	predictions = make(map[string]int)
 
-	// In each source find fixtures with matching *winners* (for now) and calculate weighted margins where applicable
+	// In each source find fixtures with matching *winners* (for now, assuming only one team can win one fixture per round),
+	// and calculate weighted margins where applicable
 	for idx := range s.Sources {
 		for f := range s.Sources[idx].Round.Fixtures {
 			if _, ok := predictions[s.Sources[idx].Round.Fixtures[f].winner]; ok {
@@ -218,7 +219,7 @@ func (s *Sources) Generate(roundID int) (map[string]int, error) {
 					)
 				} else {
 					// Matched prediction without a weighted source, implication being there are 2 sources with the same
-					// tournament that should have predictions aggregated using weighted averages
+					// tournament that should have predictions aggregated using weighted averages but dont have weights
 					helpers.Logger.Errorf("Found a matching prediction without a weight, source: %s", s.Sources[idx].Name)
 					if err == nil {
 						err = fmt.Errorf("Found a matching prediction without a weight, source: %s", s.Sources[idx].Name)
