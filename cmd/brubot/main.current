@@ -19,11 +19,11 @@ func main() {
 	var db *sql.DB
 	var roundID int
 	var previousRoundID int
-	//var margins map[string]int
+	var margins map[string]int
 
 	target := new(target.Target)
 	sources := new(sources.Sources)
-	//margins = make(map[string]int)
+	margins = make(map[string]int)
 
 	// Initialise brubot
 	helpers.LoggerInit()
@@ -58,10 +58,31 @@ func main() {
 		helpers.Logger.Fatal("Failure extracting results from target: ", err)
 	}
 
-	err = sources.Weights(previousRoundID, db)
+	// Gets current fixtures for this round
+	err = target.Fixtures(roundID)
 	if err != nil {
-		helpers.Logger.Fatal("Failure calculating target weights from previous rounds results: ", err)
+		helpers.Logger.Fatal("Failure extracting fixtures from target: ", err)
 	}
 
-	helpers.Logger.Debugf("%s", sourcesConfig.Sources[0].Name)
+	// Initialize sources and retrieve predictions
+	sources.Init(globalConfig, sourcesConfig)
+
+	// Retrieve predicted margins for all fixtures in a round, per source
+	err = sources.Predictions(roundID, db)
+	if err != nil {
+		helpers.Logger.Fatal("A failure occurred retrieving predictions from source(s): ", err)
+	}
+
+	// Generate weighted margin predictions for all sources
+	margins, err = sources.Margins(roundID)
+	if err != nil {
+		helpers.Logger.Error("A failure occurred generating predictions: ", err)
+	}
+
+	// Submit generated margins to target
+	err = target.Predictions(margins)
+	if err != nil {
+		helpers.Logger.Fatal("A failure occurred submitting predictions: ", err)
+	}
+
 }

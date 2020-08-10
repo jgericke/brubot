@@ -2,8 +2,133 @@ package sources
 
 import (
 	"brubot/internal/helpers"
+	"database/sql"
 	"fmt"
+	"math"
+
+	"github.com/lithammer/fuzzysearch/fuzzy"
 )
+
+// Weights calculates the moving weight a source should be allocated using the sources aggregate prediction accuracy
+func (s *Sources) Weights(previousRoundID int, db *sql.DB) error {
+
+	var source, leftTeam, rightTeam, winner string
+	var margin, marginDifference int
+	var marginError float64
+
+	previousRound := new(Round)
+	previousRound.id = previousRoundID
+
+	// First up, retrieve last rounds results
+	txn, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	sqlResults, err := txn.Query("select leftteam, rightteam, winner, margin from results where round_id=$1", previousRoundID)
+	if err != nil {
+		return err
+	}
+
+	for sqlResults.Next() {
+
+		err := sqlResults.Scan(&leftTeam, &rightTeam, &winner, &margin)
+		if err != nil {
+			return err
+		}
+
+		// Append results as fixtures of previousRound
+		previousRound.Fixtures = append(previousRound.Fixtures, fixture{
+			leftTeam:  leftTeam,
+			rightTeam: rightTeam,
+			winner:    winner,
+			margin:    margin,
+		})
+
+	}
+
+	// Next up retrieve last rounds predictions per-source and append to a temporary Source instance
+	sqlPredictions, err := txn.Query("select source, leftteam, rightteam, winner, margin from predictions where round_id=$1", previousRoundID)
+	if err != nil {
+		return err
+	}
+
+	var tmpSource []Source
+	var tmpFixture []fixture
+
+	for sqlPredictions.Next() {
+
+		err := sqlPredictions.Scan(&source, &leftTeam, &rightTeam, &winner, &margin)
+		if err != nil {
+			return err
+		}
+
+		tmpSource = append(tmpSource, Source{
+			Name: source,
+			Round: Round{
+				id: previousRoundID,
+				Fixtures: append(tmpFixture, fixture{
+					leftTeam:  leftTeam,
+					rightTeam: rightTeam,
+					winner:    winner,
+					margin:    margin,
+				}),
+			},
+		})
+	}
+
+	for sIdx := range tmpSource {
+		for rIdx := range previousRound.Fixtures {
+			for f := range tmpSource[sIdx].Round.Fixtures {
+
+				if fuzzy.RankMatchNormalizedFold(tmpSource[sIdx].Round.Fixtures[f].leftTeam, previousRound.Fixtures[rIdx].leftTeam) >= 0 &&
+					fuzzy.RankMatchNormalizedFold(tmpSource[sIdx].Round.Fixtures[f].rightTeam, previousRound.Fixtures[rIdx].rightTeam) >= 0 {
+
+					// Confirm prediction had the correct winning team:
+					if fuzzy.RankMatchNormalizedFold(tmpSource[sIdx].Round.Fixtures[f].winner, previousRound.Fixtures[rIdx].winner) >= 0 {
+						// Calc difference between predicted margin and actual result margin as marginDifference
+						switch {
+						case tmpSource[sIdx].Round.Fixtures[f].margin == previousRound.Fixtures[rIdx].margin:
+							marginDifference = 0
+							marginError = 0
+						default:
+							marginDifference = int(math.Abs(float64(previousRound.Fixtures[rIdx].margin - tmpSource[sIdx].Round.Fixtures[f].margin)))
+							marginError = (float64(marginDifference) / float64(previousRound.Fixtures[rIdx].margin)) * 100
+						}
+
+						helpers.Logger.Infof("tmpSource matched! source name: %s\npred winner: %s result winner: %s\n"+
+							"pred margin: %d result margin: %d (Prediction off by: %d percent error: %f)",
+							tmpSource[sIdx].Name,
+							tmpSource[sIdx].Round.Fixtures[f].winner,
+							previousRound.Fixtures[rIdx].winner,
+							tmpSource[sIdx].Round.Fixtures[f].margin,
+							previousRound.Fixtures[rIdx].margin,
+							marginDifference,
+							marginError,
+						)
+
+					} else {
+
+						helpers.Logger.Infof("tmpSource matched but predicted the wrong winner! source name: %s\npred winner: %s result winner: %s\n"+
+							"pred margin: %d result margin: %d",
+							tmpSource[sIdx].Name,
+							tmpSource[sIdx].Round.Fixtures[f].winner,
+							previousRound.Fixtures[rIdx].winner,
+							tmpSource[sIdx].Round.Fixtures[f].margin,
+							previousRound.Fixtures[rIdx].margin,
+						)
+
+					}
+
+				}
+
+			}
+		}
+	}
+
+	return nil
+
+}
 
 // Margins figures out the best margins in town from retrievd predictions and previous results
 func (s *Sources) Margins(roundID int) (map[string]int, error) {
